@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>集群 gpu 监控</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css" />
+    <script src="/static/js/jquery-3.4.1.min.js"></script>
+  </head>
+  <body>
+    <div id="main"></div>
+  </body>
+
+  <script>
+    function getTableBody(data, hostname) {
+      let res = ``;
+
+      data.forEach(p => {
+        let h = `
+			<tr>
+				<td scope="row">${p.GPU}</td>
+				<td>${p.PID}</td>
+				<td>${p.Name}</td>
+				<td>${p.MemoryUsed}</td>
+				<td>${p.MemoryUsage}%</td>
+				<td><button type="button" class="btn btn-danger" onClick='kill("${hostname}", ${p.PID})'>KILL</button></td>
+			</tr>
+			`;
+        res += h;
+      });
+
+      return res;
+    }
+    function getTable(data) {
+      let h2 = getTableBody(data.Processes, data.HostName);
+      let h = `
+<table class="table table-dark">
+	<caption>
+    	<h1>${data.HostName}</h1><>
+  	</caption>
+	<thead>
+		<tr>
+			<th scope="col">GPU 编号</th>
+			<th scope="col">PID</th>
+			<th scope="col">进程名字</th>
+			<th scope="col">显存使用量(MB)</th>
+			<th scope="col">显卡使用率</th>
+			<th scope="col">杀死进程</th>
+		</tr>
+	</thead>
+<tbody>
+${h2}
+</tbody>
+</table>
+`;
+
+      return h;
+    }
+
+    function getData() {
+      $.get("gpu_information", function(data) {
+        let h = "";
+        for (const m in data) {
+          console.log("m ", m);
+          if (data.hasOwnProperty(m)) {
+            const m2 = data[m];
+            h += getTable(m2);
+          }
+        }
+        $("#main").html(h);
+      });
+    }
+    function kill(hostname, pid) {
+      $.ajax({
+        url:
+          "/gpu_information" +
+          "?" +
+          $.param({ hostname: hostname, PID: pid, type: "KILLONE" }),
+        type: "DELETE"
+      });
+    }
+    function main() {
+      getData();
+      myVar = setInterval(getData, 3000);
+    }
+
+    main();
+  </script>
+</html>
