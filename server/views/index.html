@@ -59,8 +59,10 @@ ${h2}
 
     function getData() {
       $.get("gpu_information", function(data) {
+        console.log(data)
         let h = "";
         for (const m in data) {
+          console.log("data ", data)
           console.log("m ", m);
           if (data.hasOwnProperty(m)) {
             const m2 = data[m];

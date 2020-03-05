@@ -1,7 +1,7 @@
 package routers
 
 import (
-	"../controllers"
+	"github.com/TensShinet/watch_gpu/server/controllers"
 	"github.com/astaxie/beego"
 )
 

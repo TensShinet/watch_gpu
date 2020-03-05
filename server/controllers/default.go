@@ -10,16 +10,16 @@ type MainController struct {
 	beego.Controller
 }
 
-func (this *MainController) Get() {
+func (main *MainController) Get() {
 	text, err := ioutil.ReadFile("./views/index.html")
 	if err != nil {
-		this.Data["json"] = valueTypeError{
+		main.Data["json"] = valueTypeError{
 			"valueError",
 			400,
 		}
-		this.ServeJSON()
+		main.ServeJSON()
 		return
 	}
 
-	this.Ctx.WriteString(string(text))
+	main.Ctx.WriteString(string(text))
 }

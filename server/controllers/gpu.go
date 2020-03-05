@@ -23,6 +23,8 @@ type GpuProcess struct {
 type Machine struct {
 	HostName  string
 	Processes []GpuProcess
+	KillList  []uint
+	AutoKill  bool
 }
 
 type Command struct {
@@ -32,151 +34,144 @@ type Command struct {
 
 // 维护两个内存 map
 // HostName 必须独一无二
-
-type MachineList struct {
-	allMachineList    map[string]Machine
-	deleteProcessList map[string][]uint
-	autoKill          map[string]bool
-	mutexMachineList  sync.RWMutex
-	mutexProcessList  sync.RWMutex
-	mutexAutoKill     sync.RWMutex
+type machines struct {
+	MachineMap map[string]*Machine
+	mu         sync.Mutex
 }
+
 type valueTypeError struct {
 	Msg    string `json:"msg"`
 	Status int    `json:"status"`
 }
 
-func (this *MachineList) deleteOneMachine(hostname string) {
-	this.mutexMachineList.Lock()
-	_, ok := this.allMachineList[hostname]
+func (m *machines) deleteOneMachine(hostname string) {
+	m.mu.Lock()
+	_, ok := m.MachineMap[hostname]
 	if ok {
-		delete(this.allMachineList, hostname)
+		delete(m.MachineMap, hostname)
 	}
-	this.mutexMachineList.Unlock()
+	m.mu.Unlock()
 }
 
-func (this *MachineList) updateOneMachine(hostname string, Processes []GpuProcess) {
-	this.mutexMachineList.Lock()
-	this.allMachineList[hostname] = Machine{hostname, Processes}
-	this.mutexMachineList.Unlock()
-}
-
-func (this *MachineList) deleteOneMachineProcess(hostname string) {
-	this.mutexProcessList.Lock()
-	_, ok := this.deleteProcessList[hostname]
+func (m *machines) updateOneMachine(new *Machine) {
+	m.mu.Lock()
+	machine, ok := m.MachineMap[new.HostName]
 	if ok {
-		delete(this.deleteProcessList, hostname)
-	}
-	this.mutexProcessList.Unlock()
-}
-
-func (this *MachineList) updateOneMachineProcess(hostname string, pids []uint) {
-	this.mutexProcessList.Lock()
-	this.deleteProcessList[hostname] = pids
-	this.mutexProcessList.Unlock()
-}
-func (this *MachineList) getProcessList(hostname string, GC *GpuController, command *Command) {
-	this.mutexProcessList.RLock()
-	command.KillList = this.deleteProcessList[hostname]
-	this.mutexProcessList.RUnlock()
-}
-
-func (this *MachineList) getMachineList(GC *GpuController) {
-	this.mutexMachineList.RLock()
-	GC.Data["json"] = ML.allMachineList
-	this.mutexMachineList.RUnlock()
-}
-
-var ML MachineList = MachineList{}
-
-func (this *MachineList) setAutokill(hostname string, value bool) {
-	this.mutexAutoKill.Lock()
-	this.autoKill[hostname] = value
-	this.mutexAutoKill.Unlock()
-}
-
-func (this *MachineList) deleteAutokill(hostname string) {
-	this.mutexAutoKill.Lock()
-	_, ok := this.autoKill[hostname]
-	if ok {
-		delete(this.autoKill, hostname)
-	}
-	this.mutexAutoKill.Unlock()
-}
-
-func (this *MachineList) getAutokill(hostname string, command *Command) {
-	this.mutexAutoKill.Lock()
-	_, ok := this.autoKill[hostname]
-	if ok {
-		command.AutoKill = true
+		machine.Processes = new.Processes
 	} else {
-		command.AutoKill = false
+		m.MachineMap[new.HostName] = new
 	}
-	this.mutexAutoKill.Unlock()
+
+	m.mu.Unlock()
+}
+
+func (m *machines) getKillList(hostname string) []uint {
+	_, ok := m.MachineMap[hostname]
+	if ok {
+		return m.MachineMap[hostname].KillList
+	}
+	return nil
+}
+
+func (m *machines) deleteKillList(hostname string) {
+	m.mu.Lock()
+	machine, ok := m.MachineMap[hostname]
+	if ok {
+		machine.KillList = nil
+	}
+	m.mu.Unlock()
+}
+
+func (m *machines) checkAutoKill(hostname string) bool {
+	_, ok := m.MachineMap[hostname]
+	if ok {
+		return m.MachineMap[hostname].AutoKill
+	}
+	return false
+}
+
+func (m *machines) updateOneMachineProcess(hostname string, pids []uint) {
+	m.mu.Lock()
+	machine, ok := m.MachineMap[hostname]
+	if ok {
+		machine.KillList = pids
+	}
+	m.mu.Unlock()
+}
+var allMachine machines
+
+func (m *machines) setAutokill(hostname string, value bool) {
+	m.mu.Lock()
+	machine, ok := m.MachineMap[hostname]
+	if ok {
+		machine.AutoKill = value
+	}
+	m.mu.Unlock()
 }
 
 func init() {
-
-	ML.allMachineList = map[string]Machine{}
-	ML.deleteProcessList = map[string][]uint{}
-	ML.autoKill = map[string]bool{}
+	allMachine = machines{
+		MachineMap: map[string]*Machine{},
+		mu:         sync.Mutex{},
+	}
 }
 
-func (this *GpuController) Post() {
+func (gpuController *GpuController) Post() {
 	var m Machine
 	var err error
-	if err = json.Unmarshal(this.Ctx.Input.RequestBody, &m); err != nil {
-		this.Data["json"] = err.Error()
+	if err = json.Unmarshal(gpuController.Ctx.Input.RequestBody, &m); err != nil {
+		gpuController.Data["json"] = err.Error()
 	} else {
 		// 更新所有
-		ML.updateOneMachine(m.HostName, m.Processes)
+		allMachine.updateOneMachine(&m)
 		// 发送要删除的 pids
-		command := Command{}
-		ML.getProcessList(m.HostName, this, &command)
-		ML.getAutokill(m.HostName, &command)
-		this.Data["json"] = command
+		command := Command{
+			KillList: allMachine.getKillList(m.HostName),
+			AutoKill: allMachine.checkAutoKill(m.HostName),
+		}
+
+		gpuController.Data["json"] = command
 		// 删除 pids
-		ML.deleteOneMachineProcess(m.HostName)
-
+		allMachine.deleteKillList(m.HostName)
 	}
-	this.ServeJSON()
+	gpuController.ServeJSON()
 }
 
-func (this *GpuController) Get() {
-	ML.getMachineList(this)
-	this.ServeJSON()
+func (gpuController *GpuController) Get() {
+	gpuController.Data["json"] = allMachine.MachineMap
+	gpuController.ServeJSON()
 }
 
-func (this *GpuController) Delete() {
-	t := this.GetString("type")
+func (gpuController *GpuController) Delete() {
+	t := gpuController.GetString("type")
 	if t == "KILLONE" {
-		hostname := this.GetString("hostname")
-		pid, err := this.GetInt("PID")
+		hostname := gpuController.GetString("hostname")
+		pid, err := gpuController.GetInt("PID")
 
 		if err != nil {
-			this.Data["json"] = valueTypeError{
+			gpuController.Data["json"] = valueTypeError{
 				"valueError",
 				400,
 			}
-			this.ServeJSON()
+			gpuController.ServeJSON()
 			return
 		}
 
 		pids := []uint{uint(pid)}
-		ML.updateOneMachineProcess(hostname, pids)
+		allMachine.updateOneMachineProcess(hostname, pids)
 	} else if t == "AUTOKILL" {
-		hostname := this.GetString("hostname")
-		value, err := this.GetBool("value")
+		hostname := gpuController.GetString("hostname")
+		value, err := gpuController.GetBool("value")
 		if err != nil {
-			this.Data["json"] = valueTypeError{
+			gpuController.Data["json"] = valueTypeError{
 				"valueError",
 				400,
 			}
-			this.ServeJSON()
+			gpuController.ServeJSON()
 			return
 		}
 
-		ML.setAutokill(hostname, value)
+		allMachine.setAutokill(hostname, value)
 	} else {
 
 	}

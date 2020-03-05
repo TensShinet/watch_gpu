@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/TensShinet/watch_gpu/clientend/watch"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strconv"
 	"syscall"
 	"time"
-
-	"./watch"
 )
 
 func initFlag() {
@@ -30,7 +29,8 @@ func post(postData Machine, command *Command) (err error) {
 	jsonValue, _ := json.Marshal(postData)
 	resp, err := http.Post(postUrl, "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
-		log.Panicln("Error post GPU information ", err)
+		log.Println("Error post GPU information ", err)
+		return err
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
@@ -81,6 +81,7 @@ type Command struct {
 func kill(command *Command) {
 	killList := command.KillList
 	for _, pid := range killList {
+		fmt.Println("杀掉进程 ", int(pid))
 		syscall.Kill(int(pid), syscall.SIGKILL)
 	}
 }
@@ -112,7 +113,7 @@ func main() {
 			err = post(postData, &command)
 
 			if err != nil {
-				log.Panicln("Error get command ", err)
+				return
 			}
 			kill(&command)
 		}

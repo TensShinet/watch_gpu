@@ -1,7 +1,7 @@
 package main
 
 import (
-	_ "./routers"
+	_ "github.com/TensShinet/watch_gpu/server/routers"
 	"github.com/astaxie/beego"
 )
 
