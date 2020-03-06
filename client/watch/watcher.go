@@ -20,7 +20,7 @@ var HostName string
 
 type GpuProcess struct {
 	GPU         int
-	PID         uint
+	PID         int
 	Name        string
 	MemoryUsed  uint64
 	Type        uint
@@ -51,7 +51,7 @@ func GetAllRunningProcesses() (gpuProcesses []GpuProcess, err error) {
 		for j := range pInfo {
 			gpuProcess := GpuProcess{
 				i,
-				pInfo[j].PID,
+				int(pInfo[j].PID),
 				pInfo[j].Name,
 				pInfo[j].MemoryUsed,
 				uint(pInfo[j].Type),

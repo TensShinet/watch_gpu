@@ -25,6 +25,7 @@ type Machine struct {
 	Processes []GpuProcess
 	KillList  []uint
 	AutoKill  bool
+	Quit      bool
 }
 
 type Command struct {
@@ -98,6 +99,7 @@ func (m *machines) updateOneMachineProcess(hostname string, pids []uint) {
 	}
 	m.mu.Unlock()
 }
+
 var allMachine machines
 
 func (m *machines) setAutokill(hostname string, value bool) {
@@ -118,8 +120,7 @@ func init() {
 
 func (gpuController *GpuController) Post() {
 	var m Machine
-	var err error
-	if err = json.Unmarshal(gpuController.Ctx.Input.RequestBody, &m); err != nil {
+	if err := json.Unmarshal(gpuController.Ctx.Input.RequestBody, &m); err != nil {
 		gpuController.Data["json"] = err.Error()
 	} else {
 		// 更新所有
@@ -135,6 +136,9 @@ func (gpuController *GpuController) Post() {
 		allMachine.deleteKillList(m.HostName)
 	}
 	gpuController.ServeJSON()
+	if m.Quit {
+		allMachine.deleteOneMachine(m.HostName)
+	}
 }
 
 func (gpuController *GpuController) Get() {

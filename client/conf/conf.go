@@ -7,19 +7,21 @@ import (
 )
 
 type configType struct {
-	addr     string
-	hostname string
-	interval int
-	low      int
-	times    int
+	Addr     string
+	Hostname string
+	Interval int
+	Low      int
+	Times    int
+	AutoKill bool
 }
 
 // 默认配置
 var sysConfig = configType{
-	addr:     "127.0.0.1:8080",
-	hostname: "",
-	interval: 3,
-	times:    60, // 失败次数
+	Addr:     "127.0.0.1:8080",
+	Hostname: "",
+	Interval: 3,
+	Times:    60, // 失败次数
+	AutoKill: true,
 }
 
 var logger = logging.GetLogger("conf")
@@ -56,4 +58,9 @@ func GetString(item string) string {
 func GetInt(item string) int {
 	r := reflect.ValueOf(sysConfig)
 	return int(r.FieldByName(item).Int())
+}
+
+func GetBool(item string) bool {
+	r := reflect.ValueOf(sysConfig)
+	return r.FieldByName(item).Bool()
 }
