@@ -3,9 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"fmt"
-	"github.com/TensShinet/watch_gpu/clientend/watch"
+	"github.com/TensShinet/watch_gpu/client/conf"
+	"github.com/TensShinet/watch_gpu/client/watch"
+	"github.com/TensShinet/watch_gpu/client/logging"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -14,10 +15,12 @@ import (
 	"time"
 )
 
-func initFlag() {
-	flag.Parse()
-	log.SetFlags(0)
+var logger = logging.GetLogger("client")
+func init() {
+	level := logging.GetLevel(conf.GetString("LogLevel"))
+	logger.SetLevel(level)
 }
+
 
 type Machine struct {
 	HostName  string
@@ -25,7 +28,7 @@ type Machine struct {
 }
 
 func post(postData Machine, command *Command) (err error) {
-	postUrl := "http://" + *addr + "/gpu_information"
+	postUrl := "http://" + conf.GetString("addr") + "/gpu_information"
 	jsonValue, _ := json.Marshal(postData)
 	resp, err := http.Post(postUrl, "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
@@ -50,19 +53,20 @@ func autoKill(processes []watch.GpuProcess) {
 		key := strconv.Itoa(int(p.GPU)) + strconv.Itoa(int(p.PID))
 
 		if val, ok := ProcessList[key]; ok {
-			if p.MemoryUsage >= *upbound {
+			if p.MemoryUsage <= conf.GetInt("low") {
 				pl[key] = val + 1
 
-				if val+1 == *times {
+				if val+1 == conf.GetInt("times") {
+					logger.WithField("pid", int(p.PID)).Info("Kill Process")
 					err := syscall.Kill(int(p.PID), syscall.SIGKILL)
 					if err != nil {
-						log.Panic("Kill failed ", err)
+						logger.WithError(err)
 					}
-					log.Println("Killed the Process " + strconv.Itoa(int(p.PID)) + "Name: " + p.Name + "Memory usage: " + strconv.Itoa(p.MemoryUsage) + "%")
 					_, ok := pl[key]
 					if ok {
 						delete(pl, key)
 					}
+					logger.WithField("pid", int(p.PID))
 				}
 			}
 
@@ -74,26 +78,24 @@ func autoKill(processes []watch.GpuProcess) {
 }
 
 type Command struct {
-	KillList []uint
+	KillList []int
 	AutoKill bool
 }
 
-func kill(command *Command) {
-	killList := command.KillList
-	for _, pid := range killList {
-		fmt.Println("杀掉进程 ", int(pid))
-		syscall.Kill(int(pid), syscall.SIGKILL)
+func killAll(killlist []int) {
+	for _, pid := range killlist {
+		kill(pid)
 	}
 }
 
-var addr = flag.String("addr", "None", "server address, if not set this, it will not post data to server")
-var hostname = flag.String("hostname", "ts_client", "current hostname something like `gpu0`")
-var upbound = flag.Int("upbound", 80, "the upbound of process gpu memoory usage, default 80.")
-var interval = flag.Uint("interval", 3, "default 3, which means scan all gpu process every 3s")
-var times = flag.Int("Times", 60, "the maximum number of consecutive times, default 60")
+func kill (pid int) {
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+		logger.WithError(err).Error("failed to kill ", pid)
+	}
+}
+
 
 func main() {
-	initFlag()
 
 	if *hostname == "ts_client" {
 		log.Fatalln("You must set hostname something like `gpu0`")
